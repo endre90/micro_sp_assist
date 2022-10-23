@@ -1,0 +1,8 @@
+[package]
+name = "micro_sp_assist"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+micro_sp = {git = "https://github.com/endre90/micro_sp.git"}
+rand = "0.8.5"
