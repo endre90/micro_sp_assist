@@ -45,13 +45,23 @@
 use rand::seq::SliceRandom;
 use std::{
     cmp::max,
-    collections::{HashMap, HashSet},
+    collections::{HashMap},
 };
 
 use micro_sp::{
-    core::transition, get_model_vars, simple_transition_planner, step_2, Action, PlanningResult,
+    get_model_vars, simple_transition_planner, Action, PlanningResult,
     Predicate, SPCommon, SPVariable, State, Transition,
 };
+
+use crate::core::untrigerred::hint_with_untrigerred_transitions;
+
+#[derive(Debug, PartialEq, Clone)]
+pub struct HintFrame {
+    pub init: State,
+    pub goal: Predicate,
+    pub result: PlanningResult,
+    pub grade: usize, // probable hint quality, lower is better
+}
 
 pub fn generate_random_transition(name: &str, vars: &Vec<SPVariable>) -> Option<Transition> {
     let mut guard_vec = vec![];
@@ -123,282 +133,6 @@ pub fn generate_random_transitions(
     trans
 }
 
-pub fn step_3_new(
-    valid_combinations: Vec<(State, Predicate)>,
-    model: Vec<Transition>,
-    max_plan_lenght: usize, // the individual plan length limit
-    max_transitions: usize, // max number of generated transitions in a plan (starts with 1 and goes up to max if .all==True fails)
-    max_solutions: usize, // max number of possible transition solutions per generation length (i.e. max_transition)
-    max_tries: usize,     // we don't want to infinitelly loop
-) -> Option<(Vec<(State, Predicate, PlanningResult)>, Vec<Transition>)> {
-    let mut initial_results = vec![];
-    let mut valid_generated_transitions = vec![];
-    let mut hint_frames = vec![];
-    valid_combinations.iter().for_each(|(init, goal)| {
-        initial_results.push(simple_transition_planner(
-            init.to_owned(),
-            goal.to_owned(),
-            model.clone(),
-            max_plan_lenght,
-        ))
-    });
-    match initial_results.iter().all(|x| x.found) {
-        true => None, // means that all init/goal combinations are already satisfied with the model
-        false => {
-            let mut nr_transitions = 0;
-
-            let mut tried_transitions = model.clone(); // include the modeled and later the transitions that have failed to solve all
-            let vars = get_model_vars(&model); // get all the variables that are part of the model
-            'outer: loop {
-                if nr_transitions >= max_transitions {
-                    break 'outer Some((hint_frames, valid_generated_transitions));
-                };
-                nr_transitions = nr_transitions + 1;
-                let mut nr_solutions = 1;
-                let mut nr_tries = 1;
-                'inner: loop {
-                    if nr_solutions > max_solutions {
-                        break;
-                    };
-                    if nr_tries > max_tries {
-                        break;
-                    };
-                    nr_tries = nr_tries + 1;
-                    let gt = generate_random_transition(
-                        &format!("FIX_{}_{}", nr_transitions, nr_solutions),
-                        &vars,
-                    ); // for now just one, more later
-                    match gt {
-                        None => {} //generation failed, just increment the number of tries
-                        Some(generated_transition) => {
-                            let copmarable_generated_transition = Transition::new(
-                                "asdf",
-                                generated_transition.guard.clone(),
-                                generated_transition.actions.clone(),
-                            );
-                            let comparable_tried_transitions = tried_transitions
-                                .iter()
-                                .map(|t| {
-                                    Transition::new("asdf", t.guard.clone(), t.actions.clone())
-                                })
-                                .collect::<Vec<Transition>>();
-                            match comparable_tried_transitions
-                                .contains(&copmarable_generated_transition)
-                            {
-                                true => {} // we have already tried this one, just increment the number of tries
-                                false => {
-                                    // ok now we can add the generated transition(s) to the model and try to find a solution
-                                    tried_transitions.push(generated_transition.clone());
-                                    let mut valid_combination_results = vec![];
-                                    let mut modified_model = model.clone();
-                                    modified_model.push(generated_transition.clone());
-
-                                    for (init, goal) in &valid_combinations {
-                                        valid_combination_results.push((
-                                            init.clone(),
-                                            goal.clone(),
-                                            simple_transition_planner(
-                                                init.clone(),
-                                                goal.clone(),
-                                                modified_model.clone(),
-                                                max_plan_lenght,
-                                            ),
-                                        ));
-                                    }
-                                    match valid_combination_results.iter().all(|x| x.2.found) {
-                                        false => {}
-                                        true => {
-                                            nr_solutions = nr_solutions + 1;
-                                            let copmarable_valid_generated_transitions =
-                                                valid_generated_transitions
-                                                    .iter()
-                                                    .map(|t| {
-                                                        Transition::new(
-                                                            "asdf",
-                                                            t.guard.clone(),
-                                                            t.actions.clone(),
-                                                        )
-                                                    })
-                                                    .collect::<Vec<Transition>>();
-                                            if !copmarable_valid_generated_transitions
-                                                .contains(&copmarable_generated_transition)
-                                            {
-                                                valid_generated_transitions
-                                                    .push(generated_transition.clone());
-                                            }
-                                            // filter out the combinations which don't use the generated transitions
-                                            let mut filtered = vec![];
-                                            for x in valid_combination_results {
-                                                if x.2.plan.contains(&generated_transition.name) {
-                                                    filtered.push(x.clone())
-                                                }
-                                            }
-                                            hint_frames.extend(filtered);
-                                            // hint_frames = valid_combination_results;
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-
-#[derive(Debug, PartialEq, Clone)]
-pub struct HintFrame {
-    pub init: State,
-    pub goal: Predicate,
-    pub result: PlanningResult,
-    pub tier: usize, // probable hint tier
-}
-
-// will try marking the hints here
-// explain this one in the paper and then maybe later expant to the multiple transition generation one
-pub fn step_3_new_new(
-    valid_combinations: Vec<(State, Predicate)>,
-    model: Vec<Transition>,
-    max_plan_lenght: usize, // the individual plan length limit
-    max_transitions: usize, // max number of generated transitions in a plan (starts with 1 and goes up to max if .all==True fails)
-    max_solutions: usize, // max number of possible transition solutions per generation length (i.e. max_transition)
-    max_tries: usize,     // we don't want to infinitelly loop
-) -> Option<(Vec<HintFrame>, Vec<Transition>)> {
-    let mut initial_results = vec![];
-    let mut valid_generated_transitions = vec![];
-    let mut hint_frames = vec![];
-    valid_combinations.iter().for_each(|(init, goal)| {
-        initial_results.push(simple_transition_planner(
-            init.to_owned(),
-            goal.to_owned(),
-            model.clone(),
-            max_plan_lenght,
-        ))
-    });
-    let non_taken_transitions = step_2(valid_combinations.clone(), model.clone(), max_plan_lenght);
-    match initial_results.iter().all(|x| x.found) {
-        true => None, // means that all init/goal combinations are already satisfied with the model
-        false => {
-            let mut nr_transitions = 0;
-
-            let mut tried_transitions = model.clone(); // include the modeled and later the transitions that have failed to solve all
-            let vars = get_model_vars(&model); // get all the variables that are part of the model
-            'outer: loop {
-                if nr_transitions >= max_transitions {
-                    break 'outer Some((hint_frames, valid_generated_transitions));
-                };
-                nr_transitions = nr_transitions + 1;
-                let mut nr_solutions = 1;
-                let mut nr_tries = 1;
-                'inner: loop {
-                    if nr_solutions > max_solutions {
-                        break;
-                    };
-                    if nr_tries > max_tries {
-                        break;
-                    };
-                    nr_tries = nr_tries + 1;
-                    let gt = generate_random_transition(
-                        &format!("FIX_{}_{}", nr_transitions, nr_solutions),
-                        &vars,
-                    ); // for now just one, more later
-                    match gt {
-                        None => {} //generation failed, just increment the number of tries
-                        Some(generated_transition) => {
-                            let copmarable_generated_transition = Transition::new(
-                                "asdf",
-                                generated_transition.guard.clone(),
-                                generated_transition.actions.clone(),
-                            );
-                            let comparable_tried_transitions = tried_transitions
-                                .iter()
-                                .map(|t| {
-                                    Transition::new("asdf", t.guard.clone(), t.actions.clone())
-                                })
-                                .collect::<Vec<Transition>>();
-                            match comparable_tried_transitions
-                                .contains(&copmarable_generated_transition)
-                            {
-
-                                
-                                true => {} // we have already tried this one, just increment the number of tries
-                                false => {
-                                    // ok now we can add the generated transition(s) to the model and try to find a solution
-                                    tried_transitions.push(generated_transition.clone());
-                                    let mut valid_combination_results = vec![];
-                                    let mut modified_model = model.clone();
-                                    modified_model.push(generated_transition.clone());
-
-                                    for (init, goal) in &valid_combinations {
-                                        let result = simple_transition_planner(
-                                            init.clone(),
-                                            goal.clone(),
-                                            modified_model.clone(),
-                                            max_plan_lenght,
-                                        );
-
-                                        // move this to postprocessing
-                                        let tier = 0;
-                                        // for nt in &non_taken_transitions {
-                                        //     if result.plan.contains(&nt) {
-                                        //         tier = tier + 1;
-                                        //     }
-                                        // }
-                                        // we have to check on the transition level first and mark the hints later
-                                        // i.e. if any plans with a FIX contain any nontaken transition for all plans
-                                        valid_combination_results.push(HintFrame {
-                                            init: init.clone(),
-                                            goal: goal.clone(),
-                                            result: result.clone(),
-                                            tier,
-                                        });
-                                    }
-                                    match valid_combination_results.iter().all(|x| x.result.found) {
-                                        false => {}
-                                        true => {
-                                            nr_solutions = nr_solutions + 1;
-                                            let copmarable_valid_generated_transitions =
-                                                valid_generated_transitions
-                                                    .iter()
-                                                    .map(|t| {
-                                                        Transition::new(
-                                                            "asdf",
-                                                            t.guard.clone(),
-                                                            t.actions.clone(),
-                                                        )
-                                                    })
-                                                    .collect::<Vec<Transition>>();
-                                            if !copmarable_valid_generated_transitions
-                                                .contains(&copmarable_generated_transition)
-                                            {
-                                                valid_generated_transitions
-                                                    .push(generated_transition.clone());
-                                            }
-                                            // filter out the combinations which don't use the generated transitions
-                                            let mut filtered = vec![];
-                                            for x in valid_combination_results {
-                                                if x.result
-                                                    .plan
-                                                    .contains(&generated_transition.name)
-                                                {
-                                                    filtered.push(x.clone())
-                                                }
-                                            }
-                                            hint_frames.extend(filtered);
-                                            // hint_frames = valid_combination_results;
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-
 // here we will grade the transitions and hints with tier scores
 pub fn postprocess(
     valid_combinations: Vec<(State, Predicate)>,
@@ -406,7 +140,7 @@ pub fn postprocess(
     max_plan_lenght: usize, // the individual plan length limit
     solutions: Option<(Vec<HintFrame>, Vec<Transition>)>,
 ) -> Option<(Vec<HintFrame>, Vec<(Transition, usize)>)> {
-    let non_taken_transitions = step_2(valid_combinations.clone(), model.clone(), max_plan_lenght);
+    let non_taken_transitions = hint_with_untrigerred_transitions(valid_combinations.clone(), model.clone(), max_plan_lenght);
     match solutions {
         Some(s) => {
             let not_scored_hint_frames = s.0.clone();
@@ -455,7 +189,7 @@ pub fn postprocess(
                     init: ns.init.clone(),
                     goal: ns.goal.clone(),
                     result: ns.result.clone(),
-                    tier: hint_score,
+                    grade: hint_score,
                 })
             }
 
@@ -465,211 +199,485 @@ pub fn postprocess(
     }
 }
 
-pub fn step_3(
-    valid_combinations: Vec<(State, Predicate)>,
-    model: Vec<Transition>,
-    max_plan_lenght: usize,
-    max_trans: usize,
-    max_tries: usize,
-) -> Vec<Transition> {
-    // let mut model_transitions = model.clone();
-    let mut failed_transitions = model.clone();
-    let vars = get_model_vars(&model);
-    let mut nr_trans = 0;
-    let mut tries = 0;
-    let mut failed = false;
-    let mut working_trans = vec![];
-    'outer: loop {
-        if tries >= max_tries {
-            break;
-        }
-        let new_trans = generate_random_transition("FIX", &vars);
-        match new_trans {
-            Some(t) => {
-                if !failed_transitions.contains(&t) {
-                    // FIRST: we have to check if all of them pass without adding a new transition
-                    // generate up to several counterexample transitions for one transition length i.e. FIX_0 (forbid the ones that exist already)
-                    // for more than 1 FIX, also have more sounterexamples
-
-                    // later, maybe also add forbidden init/goal combinations so that we can narrow the search more?
-
-                    // need to check for all transitions
-
-                    // also, have to remove the failed ones from the main transitions list
-                    // and have a failed tries list, so that we don't end up with random going back plans and such...
-                    // println!("ADDED NEW TRANSITION!");
-                    let mut model_transitions = model.clone();
-                    model_transitions.push(t.clone());
-                    'inner: for (init, goal) in &valid_combinations {
-                        let result = simple_transition_planner(
-                            init.clone(),
-                            goal.clone(),
-                            model_transitions.clone(),
-                            max_plan_lenght,
-                        );
-                        if !result.found {
-                            failed_transitions.push(t.clone());
-                            failed = true;
-                            break 'inner;
-                        }
-                    }
-                    if !failed {
-                        working_trans.push(t.clone());
-                        break 'outer;
-                    } else {
-                        failed = false;
-                    }
-                }
-            }
-            None => (),
-        }
-        tries = tries + 1;
-    }
-
-    working_trans
-}
 
 
-// TODO: Implement EQ and PArtialEQ for transitions to be able to compare them
-// doesn't work yet
-// will try marking the hints here
-pub fn step_3_final(
-    valid_combinations: Vec<(State, Predicate)>,
-    model: Vec<Transition>,
-    max_plan_lenght: usize, // the individual plan length limit
-    max_transitions: usize, // max number of generated transitions in a plan (starts with 1 and goes up to max if .all==True fails)
-    max_solutions: usize, // max number of possible transition solutions per generation length (i.e. max_transition)
-    max_tries: usize,     // we don't want to infinitelly loop
-) -> Option<(Vec<HintFrame>, Vec<Vec<Transition>>)> {
-    let mut initial_results = vec![];
-    let mut valid_generated_transitions = vec![];
-    let mut hint_frames = vec![];
-    valid_combinations.iter().for_each(|(init, goal)| {
-        initial_results.push(simple_transition_planner(
-            init.to_owned(),
-            goal.to_owned(),
-            model.clone(),
-            max_plan_lenght,
-        ))
-    });
-    let non_taken_transitions = step_2(valid_combinations.clone(), model.clone(), max_plan_lenght);
-    match initial_results.iter().all(|x| x.found) {
-        true => None, // means that all init/goal combinations are already satisfied with the model
-        false => {
-            let mut nr_transitions = 0;
+// pub fn step_3_new(
+//     valid_combinations: Vec<(State, Predicate)>,
+//     model: Vec<Transition>,
+//     max_plan_lenght: usize, // the individual plan length limit
+//     max_transitions: usize, // max number of generated transitions in a plan (starts with 1 and goes up to max if .all==True fails)
+//     max_solutions: usize, // max number of possible transition solutions per generation length (i.e. max_transition)
+//     max_tries: usize,     // we don't want to infinitelly loop
+// ) -> Option<(Vec<(State, Predicate, PlanningResult)>, Vec<Transition>)> {
+//     let mut initial_results = vec![];
+//     let mut valid_generated_transitions = vec![];
+//     let mut hint_frames = vec![];
+//     valid_combinations.iter().for_each(|(init, goal)| {
+//         initial_results.push(simple_transition_planner(
+//             init.to_owned(),
+//             goal.to_owned(),
+//             model.clone(),
+//             max_plan_lenght,
+//         ))
+//     });
+//     match initial_results.iter().all(|x| x.found) {
+//         true => None, // means that all init/goal combinations are already satisfied with the model
+//         false => {
+//             let mut nr_transitions = 0;
 
-            // now we want to see if we have already generated the transition vectors (i.e. for sizes 1, 2, 3...)
-            let mut tried_transitions = model
-                .clone()
-                .iter()
-                .map(|t| vec![t.clone()])
-                .collect::<Vec<Vec<Transition>>>();
-            let vars = get_model_vars(&model); // get all the variables that are part of the model
-            'outer: loop {
-                if nr_transitions >= max_transitions {
-                    break 'outer Some((hint_frames, valid_generated_transitions));
-                };
-                nr_transitions = nr_transitions + 1;
-                let mut nr_solutions = 1;
-                let mut nr_tries = 1;
-                'inner: loop {
-                    if nr_solutions > max_solutions {
-                        break;
-                    };
-                    if nr_tries > max_tries {
-                        break;
-                    };
-                    nr_tries = nr_tries + 1;
+//             let mut tried_transitions = model.clone(); // include the modeled and later the transitions that have failed to solve all
+//             let vars = get_model_vars(&model); // get all the variables that are part of the model
+//             'outer: loop {
+//                 if nr_transitions >= max_transitions {
+//                     break 'outer Some((hint_frames, valid_generated_transitions));
+//                 };
+//                 nr_transitions = nr_transitions + 1;
+//                 let mut nr_solutions = 1;
+//                 let mut nr_tries = 1;
+//                 'inner: loop {
+//                     if nr_solutions > max_solutions {
+//                         break;
+//                     };
+//                     if nr_tries > max_tries {
+//                         break;
+//                     };
+//                     nr_tries = nr_tries + 1;
+//                     let gt = generate_random_transition(
+//                         &format!("FIX_{}_{}", nr_transitions, nr_solutions),
+//                         &vars,
+//                     ); // for now just one, more later
+//                     match gt {
+//                         None => {} //generation failed, just increment the number of tries
+//                         Some(generated_transition) => {
+//                             let copmarable_generated_transition = Transition::new(
+//                                 "asdf",
+//                                 generated_transition.guard.clone(),
+//                                 generated_transition.actions.clone(),
+//                             );
+//                             let comparable_tried_transitions = tried_transitions
+//                                 .iter()
+//                                 .map(|t| {
+//                                     Transition::new("asdf", t.guard.clone(), t.actions.clone())
+//                                 })
+//                                 .collect::<Vec<Transition>>();
+//                             match comparable_tried_transitions
+//                                 .contains(&copmarable_generated_transition)
+//                             {
+//                                 true => {} // we have already tried this one, just increment the number of tries
+//                                 false => {
+//                                     // ok now we can add the generated transition(s) to the model and try to find a solution
+//                                     tried_transitions.push(generated_transition.clone());
+//                                     let mut valid_combination_results = vec![];
+//                                     let mut modified_model = model.clone();
+//                                     modified_model.push(generated_transition.clone());
 
-                    // now we want to generate more than one transition
-                    let generated_transitions = generate_random_transitions(
-                        &format!("FIX_{}_{}", nr_transitions, nr_solutions),
-                        nr_transitions,
-                        &vars,
-                    );
-                    let comparable_generated_transitions = generated_transitions
-                        .iter()
-                        .map(|t| Transition::new("asdf", t.guard.clone(), t.actions.clone()))
-                        .collect::<Vec<Transition>>();
-                    let comparable_tried_transitions = tried_transitions
-                        .iter()
-                        .map(|tv| {
-                            tv.iter()
-                                .map(|t| {
-                                    Transition::new("asdf", t.guard.clone(), t.actions.clone())
-                                })
-                                .collect::<Vec<Transition>>()
-                        })
-                        .collect::<Vec<Vec<Transition>>>();
+//                                     for (init, goal) in &valid_combinations {
+//                                         valid_combination_results.push((
+//                                             init.clone(),
+//                                             goal.clone(),
+//                                             simple_transition_planner(
+//                                                 init.clone(),
+//                                                 goal.clone(),
+//                                                 modified_model.clone(),
+//                                                 max_plan_lenght,
+//                                             ),
+//                                         ));
+//                                     }
+//                                     match valid_combination_results.iter().all(|x| x.2.found) {
+//                                         false => {}
+//                                         true => {
+//                                             nr_solutions = nr_solutions + 1;
+//                                             let copmarable_valid_generated_transitions =
+//                                                 valid_generated_transitions
+//                                                     .iter()
+//                                                     .map(|t| {
+//                                                         Transition::new(
+//                                                             "asdf",
+//                                                             t.guard.clone(),
+//                                                             t.actions.clone(),
+//                                                         )
+//                                                     })
+//                                                     .collect::<Vec<Transition>>();
+//                                             if !copmarable_valid_generated_transitions
+//                                                 .contains(&copmarable_generated_transition)
+//                                             {
+//                                                 valid_generated_transitions
+//                                                     .push(generated_transition.clone());
+//                                             }
+//                                             // filter out the combinations which don't use the generated transitions
+//                                             let mut filtered = vec![];
+//                                             for x in valid_combination_results {
+//                                                 if x.2.plan.contains(&generated_transition.name) {
+//                                                     filtered.push(x.clone())
+//                                                 }
+//                                             }
+//                                             hint_frames.extend(filtered);
+//                                             // hint_frames = valid_combination_results;
+//                                         }
+//                                     }
+//                                 }
+//                             }
+//                         }
+//                     }
+//                 }
+//             }
+//         }
+//     }
+// }
 
-                    match comparable_tried_transitions.contains(&comparable_generated_transitions) {
-                        true => {} // we have already tried these, just increment the number of tries
-                        false => {
-                            // ok now we can add the generated transition(s) to the model and try to find a solution
-                            tried_transitions.push(generated_transitions.clone());
-                            let mut valid_combination_results = vec![];
-                            let mut modified_model = model.clone();
-                            for t in &generated_transitions {
-                                modified_model.push(t.clone());
-                            }
-                            for (init, goal) in &valid_combinations {
-                                let result = simple_transition_planner(
-                                    init.clone(),
-                                    goal.clone(),
-                                    modified_model.clone(),
-                                    max_plan_lenght,
-                                );
 
-                                let tier = 0;
-                                valid_combination_results.push(HintFrame {
-                                    init: init.clone(),
-                                    goal: goal.clone(),
-                                    result: result.clone(),
-                                    tier,
-                                });
-                            }
 
-                            match valid_combination_results.iter().all(|x| x.result.found) {
-                                false => {}
-                                true => {
-                                    nr_solutions = nr_solutions + 1;
-                                    let copmarable_valid_generated_transitions =
-                                        valid_generated_transitions
-                                            .iter()
-                                            .map(|tv| {
-                                                tv.iter()
-                                                    .map(|t| {
-                                                        Transition::new(
-                                                            "asdf",
-                                                            t.guard.clone(),
-                                                            t.actions.clone(),
-                                                        )
-                                                    })
-                                                    .collect::<Vec<Transition>>()
-                                            })
-                                            .collect::<Vec<Vec<Transition>>>();
+// // will try marking the hints here
+// // explain this one in the paper and then maybe later expant to the multiple transition generation one
+// pub fn step_3_new_new(
+//     valid_combinations: Vec<(State, Predicate)>,
+//     model: Vec<Transition>,
+//     max_plan_lenght: usize, // the individual plan length limit
+//     max_transitions: usize, // max number of generated transitions in a plan (starts with 1 and goes up to max if .all==True fails)
+//     max_solutions: usize, // max number of possible transition solutions per generation length (i.e. max_transition)
+//     max_tries: usize,     // we don't want to infinitelly loop
+// ) -> Option<(Vec<HintFrame>, Vec<Transition>)> {
+//     let mut initial_results = vec![];
+//     let mut valid_generated_transitions = vec![];
+//     let mut hint_frames = vec![];
+//     valid_combinations.iter().for_each(|(init, goal)| {
+//         initial_results.push(simple_transition_planner(
+//             init.to_owned(),
+//             goal.to_owned(),
+//             model.clone(),
+//             max_plan_lenght,
+//         ))
+//     });
+//     let non_taken_transitions = step_2(valid_combinations.clone(), model.clone(), max_plan_lenght);
+//     match initial_results.iter().all(|x| x.found) {
+//         true => None, // means that all init/goal combinations are already satisfied with the model
+//         false => {
+//             let mut nr_transitions = 0;
 
-                                    if !copmarable_valid_generated_transitions
-                                        .contains(&comparable_generated_transitions)
-                                    {
-                                        valid_generated_transitions
-                                            .push(generated_transitions.clone());
-                                    }
-                                    let mut filtered = vec![];
-                                    for x in &valid_combination_results {
-                                        for t in &generated_transitions {
-                                            if x.result.plan.contains(&t.name) {
-                                                filtered.push(x.clone())
-                                            }
-                                        }
-                                    }
-                                    hint_frames.extend(filtered);
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
+//             let mut tried_transitions = model.clone(); // include the modeled and later the transitions that have failed to solve all
+//             let vars = get_model_vars(&model); // get all the variables that are part of the model
+//             'outer: loop {
+//                 if nr_transitions >= max_transitions {
+//                     break 'outer Some((hint_frames, valid_generated_transitions));
+//                 };
+//                 nr_transitions = nr_transitions + 1;
+//                 let mut nr_solutions = 1;
+//                 let mut nr_tries = 1;
+//                 'inner: loop {
+//                     if nr_solutions > max_solutions {
+//                         break;
+//                     };
+//                     if nr_tries > max_tries {
+//                         break;
+//                     };
+//                     nr_tries = nr_tries + 1;
+//                     let gt = generate_random_transition(
+//                         &format!("FIX_{}_{}", nr_transitions, nr_solutions),
+//                         &vars,
+//                     ); // for now just one, more later
+//                     match gt {
+//                         None => {} //generation failed, just increment the number of tries
+//                         Some(generated_transition) => {
+//                             let copmarable_generated_transition = Transition::new(
+//                                 "asdf",
+//                                 generated_transition.guard.clone(),
+//                                 generated_transition.actions.clone(),
+//                             );
+//                             let comparable_tried_transitions = tried_transitions
+//                                 .iter()
+//                                 .map(|t| {
+//                                     Transition::new("asdf", t.guard.clone(), t.actions.clone())
+//                                 })
+//                                 .collect::<Vec<Transition>>();
+//                             match comparable_tried_transitions
+//                                 .contains(&copmarable_generated_transition)
+//                             {
+
+                                
+//                                 true => {} // we have already tried this one, just increment the number of tries
+//                                 false => {
+//                                     // ok now we can add the generated transition(s) to the model and try to find a solution
+//                                     tried_transitions.push(generated_transition.clone());
+//                                     let mut valid_combination_results = vec![];
+//                                     let mut modified_model = model.clone();
+//                                     modified_model.push(generated_transition.clone());
+
+//                                     for (init, goal) in &valid_combinations {
+//                                         let result = simple_transition_planner(
+//                                             init.clone(),
+//                                             goal.clone(),
+//                                             modified_model.clone(),
+//                                             max_plan_lenght,
+//                                         );
+
+//                                         // move this to postprocessing
+//                                         let tier = 0;
+//                                         // for nt in &non_taken_transitions {
+//                                         //     if result.plan.contains(&nt) {
+//                                         //         tier = tier + 1;
+//                                         //     }
+//                                         // }
+//                                         // we have to check on the transition level first and mark the hints later
+//                                         // i.e. if any plans with a FIX contain any nontaken transition for all plans
+//                                         valid_combination_results.push(HintFrame {
+//                                             init: init.clone(),
+//                                             goal: goal.clone(),
+//                                             result: result.clone(),
+//                                             tier,
+//                                         });
+//                                     }
+//                                     match valid_combination_results.iter().all(|x| x.result.found) {
+//                                         false => {}
+//                                         true => {
+//                                             nr_solutions = nr_solutions + 1;
+//                                             let copmarable_valid_generated_transitions =
+//                                                 valid_generated_transitions
+//                                                     .iter()
+//                                                     .map(|t| {
+//                                                         Transition::new(
+//                                                             "asdf",
+//                                                             t.guard.clone(),
+//                                                             t.actions.clone(),
+//                                                         )
+//                                                     })
+//                                                     .collect::<Vec<Transition>>();
+//                                             if !copmarable_valid_generated_transitions
+//                                                 .contains(&copmarable_generated_transition)
+//                                             {
+//                                                 valid_generated_transitions
+//                                                     .push(generated_transition.clone());
+//                                             }
+//                                             // filter out the combinations which don't use the generated transitions
+//                                             let mut filtered = vec![];
+//                                             for x in valid_combination_results {
+//                                                 if x.result
+//                                                     .plan
+//                                                     .contains(&generated_transition.name)
+//                                                 {
+//                                                     filtered.push(x.clone())
+//                                                 }
+//                                             }
+//                                             hint_frames.extend(filtered);
+//                                             // hint_frames = valid_combination_results;
+//                                         }
+//                                     }
+//                                 }
+//                             }
+//                         }
+//                     }
+//                 }
+//             }
+//         }
+//     }
+// }
+
+
+
+// pub fn step_3(
+//     valid_combinations: Vec<(State, Predicate)>,
+//     model: Vec<Transition>,
+//     max_plan_lenght: usize,
+//     max_trans: usize,
+//     max_tries: usize,
+// ) -> Vec<Transition> {
+//     // let mut model_transitions = model.clone();
+//     let mut failed_transitions = model.clone();
+//     let vars = get_model_vars(&model);
+//     let mut nr_trans = 0;
+//     let mut tries = 0;
+//     let mut failed = false;
+//     let mut working_trans = vec![];
+//     'outer: loop {
+//         if tries >= max_tries {
+//             break;
+//         }
+//         let new_trans = generate_random_transition("FIX", &vars);
+//         match new_trans {
+//             Some(t) => {
+//                 if !failed_transitions.contains(&t) {
+//                     // FIRST: we have to check if all of them pass without adding a new transition
+//                     // generate up to several counterexample transitions for one transition length i.e. FIX_0 (forbid the ones that exist already)
+//                     // for more than 1 FIX, also have more sounterexamples
+
+//                     // later, maybe also add forbidden init/goal combinations so that we can narrow the search more?
+
+//                     // need to check for all transitions
+
+//                     // also, have to remove the failed ones from the main transitions list
+//                     // and have a failed tries list, so that we don't end up with random going back plans and such...
+//                     // println!("ADDED NEW TRANSITION!");
+//                     let mut model_transitions = model.clone();
+//                     model_transitions.push(t.clone());
+//                     'inner: for (init, goal) in &valid_combinations {
+//                         let result = simple_transition_planner(
+//                             init.clone(),
+//                             goal.clone(),
+//                             model_transitions.clone(),
+//                             max_plan_lenght,
+//                         );
+//                         if !result.found {
+//                             failed_transitions.push(t.clone());
+//                             failed = true;
+//                             break 'inner;
+//                         }
+//                     }
+//                     if !failed {
+//                         working_trans.push(t.clone());
+//                         break 'outer;
+//                     } else {
+//                         failed = false;
+//                     }
+//                 }
+//             }
+//             None => (),
+//         }
+//         tries = tries + 1;
+//     }
+
+//     working_trans
+// }
+
+
+// // TODO: Implement EQ and PArtialEQ for transitions to be able to compare them
+// // doesn't work yet
+// // will try marking the hints here
+// pub fn step_3_final(
+//     valid_combinations: Vec<(State, Predicate)>,
+//     model: Vec<Transition>,
+//     max_plan_lenght: usize, // the individual plan length limit
+//     max_transitions: usize, // max number of generated transitions in a plan (starts with 1 and goes up to max if .all==True fails)
+//     max_solutions: usize, // max number of possible transition solutions per generation length (i.e. max_transition)
+//     max_tries: usize,     // we don't want to infinitelly loop
+// ) -> Option<(Vec<HintFrame>, Vec<Vec<Transition>>)> {
+//     let mut initial_results = vec![];
+//     let mut valid_generated_transitions = vec![];
+//     let mut hint_frames = vec![];
+//     valid_combinations.iter().for_each(|(init, goal)| {
+//         initial_results.push(simple_transition_planner(
+//             init.to_owned(),
+//             goal.to_owned(),
+//             model.clone(),
+//             max_plan_lenght,
+//         ))
+//     });
+//     let non_taken_transitions = step_2(valid_combinations.clone(), model.clone(), max_plan_lenght);
+//     match initial_results.iter().all(|x| x.found) {
+//         true => None, // means that all init/goal combinations are already satisfied with the model
+//         false => {
+//             let mut nr_transitions = 0;
+
+//             // now we want to see if we have already generated the transition vectors (i.e. for sizes 1, 2, 3...)
+//             let mut tried_transitions = model
+//                 .clone()
+//                 .iter()
+//                 .map(|t| vec![t.clone()])
+//                 .collect::<Vec<Vec<Transition>>>();
+//             let vars = get_model_vars(&model); // get all the variables that are part of the model
+//             'outer: loop {
+//                 if nr_transitions >= max_transitions {
+//                     break 'outer Some((hint_frames, valid_generated_transitions));
+//                 };
+//                 nr_transitions = nr_transitions + 1;
+//                 let mut nr_solutions = 1;
+//                 let mut nr_tries = 1;
+//                 'inner: loop {
+//                     if nr_solutions > max_solutions {
+//                         break;
+//                     };
+//                     if nr_tries > max_tries {
+//                         break;
+//                     };
+//                     nr_tries = nr_tries + 1;
+
+//                     // now we want to generate more than one transition
+//                     let generated_transitions = generate_random_transitions(
+//                         &format!("FIX_{}_{}", nr_transitions, nr_solutions),
+//                         nr_transitions,
+//                         &vars,
+//                     );
+//                     let comparable_generated_transitions = generated_transitions
+//                         .iter()
+//                         .map(|t| Transition::new("asdf", t.guard.clone(), t.actions.clone()))
+//                         .collect::<Vec<Transition>>();
+//                     let comparable_tried_transitions = tried_transitions
+//                         .iter()
+//                         .map(|tv| {
+//                             tv.iter()
+//                                 .map(|t| {
+//                                     Transition::new("asdf", t.guard.clone(), t.actions.clone())
+//                                 })
+//                                 .collect::<Vec<Transition>>()
+//                         })
+//                         .collect::<Vec<Vec<Transition>>>();
+
+//                     match comparable_tried_transitions.contains(&comparable_generated_transitions) {
+//                         true => {} // we have already tried these, just increment the number of tries
+//                         false => {
+//                             // ok now we can add the generated transition(s) to the model and try to find a solution
+//                             tried_transitions.push(generated_transitions.clone());
+//                             let mut valid_combination_results = vec![];
+//                             let mut modified_model = model.clone();
+//                             for t in &generated_transitions {
+//                                 modified_model.push(t.clone());
+//                             }
+//                             for (init, goal) in &valid_combinations {
+//                                 let result = simple_transition_planner(
+//                                     init.clone(),
+//                                     goal.clone(),
+//                                     modified_model.clone(),
+//                                     max_plan_lenght,
+//                                 );
+
+//                                 let tier = 0;
+//                                 valid_combination_results.push(HintFrame {
+//                                     init: init.clone(),
+//                                     goal: goal.clone(),
+//                                     result: result.clone(),
+//                                     tier,
+//                                 });
+//                             }
+
+//                             match valid_combination_results.iter().all(|x| x.result.found) {
+//                                 false => {}
+//                                 true => {
+//                                     nr_solutions = nr_solutions + 1;
+//                                     let copmarable_valid_generated_transitions =
+//                                         valid_generated_transitions
+//                                             .iter()
+//                                             .map(|tv| {
+//                                                 tv.iter()
+//                                                     .map(|t| {
+//                                                         Transition::new(
+//                                                             "asdf",
+//                                                             t.guard.clone(),
+//                                                             t.actions.clone(),
+//                                                         )
+//                                                     })
+//                                                     .collect::<Vec<Transition>>()
+//                                             })
+//                                             .collect::<Vec<Vec<Transition>>>();
+
+//                                     if !copmarable_valid_generated_transitions
+//                                         .contains(&comparable_generated_transitions)
+//                                     {
+//                                         valid_generated_transitions
+//                                             .push(generated_transitions.clone());
+//                                     }
+//                                     let mut filtered = vec![];
+//                                     for x in &valid_combination_results {
+//                                         for t in &generated_transitions {
+//                                             if x.result.plan.contains(&t.name) {
+//                                                 filtered.push(x.clone())
+//                                             }
+//                                         }
+//                                     }
+//                                     hint_frames.extend(filtered);
+//                                 }
+//                             }
+//                         }
+//                     }
+//                 }
+//             }
+//         }
+//     }
+// }

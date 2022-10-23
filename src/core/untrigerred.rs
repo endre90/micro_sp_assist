@@ -2,7 +2,7 @@ use std::collections::HashSet;
 
 use micro_sp::{simple_transition_planner, Predicate, State, Transition};
 
-pub fn step_2(
+pub fn hint_with_untrigerred_transitions(
     valid_combinations: Vec<(State, Predicate)>,
     model: Vec<Transition>,
     max_plan_lenght: usize,

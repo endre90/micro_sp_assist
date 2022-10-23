@@ -19,7 +19,7 @@ pub struct Step1Solution {
     pub time: Duration,
 }
 
-pub fn step_1(
+pub fn hint_with_anomalies(
     model: Vec<Transition>,
     max_tries: usize,
     max_state_combinations: usize,

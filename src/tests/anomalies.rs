@@ -1,14 +1,15 @@
 #![allow(unused_imports)]
 #![allow(dead_code)]
 use micro_sp::{
-    a, and, eq, eq2, simple_transition_planner, step_1, t, v, Action, Predicate, SPCommon, SPValue,
-    SPValueType, SPVariable, State, ToSPCommon, ToSPCommonVar, ToSPValue, ToSPVariable, Transition,
+    a, and, eq, simple_transition_planner, t, v, Action, Predicate, SPCommon, SPValue,
+    SPValueType, SPVariable, State, ToSPCommon, ToSPCommonVar, ToSPValue, Transition,
 };
 use std::collections::{HashMap, HashSet};
 
-// use the transition state space and not the complete state space for this search.
+use crate::core::anomalies::hint_with_anomalies;
+
 #[test]
-fn test_step_1_1() {
+fn test_hint_with_anomalies_1() {
     let stat = v!("stat", &vec!("on", "off"));
     let pos = v!("pos", &vec!("a", "b", "c", "d", "e", "f"));
     let s = State::new(&HashMap::from([
@@ -19,40 +20,40 @@ fn test_step_1_1() {
     let t1 = t!(
         "a_to_b",
         and!(
-            eq!("pos".to_comvar(&s), "a".to_comval()),
-            eq!("stat".to_comvar(&s), "on".to_comval())
+            eq!(&pos.cr(), "a".cl()),
+            eq!(&stat.cr(), "on".cl())
         ),
-        vec!(a!(pos.clone(), "b".to_comval()))
+        vec!(a!(pos.clone(), "b".cl()))
     );
     // introduce fault here
     let t2 = t!(
         "b_to_c",
         and!(
-            eq2!(&pos, "b".to_comval()),
-            eq!("stat".to_comvar(&s), "on".to_comval())
+            eq!(&pos.cr(), "b".cl()),
+            eq!(&stat.cr(), "on".cl())
         ),
-        vec!(a!(pos.clone(), "a".to_comval()))
+        vec!(a!(pos.clone(), "a".cl()))
     );
     let t3 = t!(
         "c_to_d",
         and!(
-            eq!("pos".to_comvar(&s), "c".to_comval()),
-            eq!("stat".to_comvar(&s), "on".to_comval())
+            eq!(&pos.cr(), "c".cl()),
+            eq!(&stat.cr(), "on".cl())
         ),
-        vec!(a!(pos.clone(), "d".to_comval()))
+        vec!(a!(pos.clone(), "d".cl()))
     );
     let t4 = t!(
         "turn_on",
-        eq!("stat".to_comvar(&s), "off".to_comval()),
-        vec!(a!(stat.clone(), "on".to_comval()))
+        eq!(&stat.cr(), "off".cl()),
+        vec!(a!(stat.clone(), "on".cl()))
     );
     let t5 = t!(
         "turn_off",
-        eq!("stat".to_comvar(&s), "on".to_comval()),
-        vec!(a!(stat.clone(), "off".to_comval()))
+        eq!(&stat.cr(), "on".cl()),
+        vec!(a!(stat.clone(), "off".cl()))
     );
 
-    let result = step_1(
+    let result = hint_with_anomalies(
         vec![t1.clone(), t2.clone(), t3.clone(), t4.clone(), t5.clone()],
         100, // max_tries
         50,  // max_combinations
@@ -87,7 +88,7 @@ fn test_step_1_1() {
 }
 
 #[test]
-fn test_step_1_2() {
+fn test_hint_with_anomalies_2() {
     let stat = v!("stat", &vec!("on", "off"));
     let pos = v!("pos", &vec!("a", "b", "c", "d", "e", "f"));
     let s = State::new(&HashMap::from([
@@ -101,12 +102,12 @@ fn test_step_1_2() {
         for pos2 in &pos.domain {
             if pos1 != pos2 {
                 transitions.push(t!(
-                    &format!("{}_to_{}", &pos1.value_as_string(), &pos2.value_as_string()),
+                    &format!("{}_to_{}", &pos1.to_string(), &pos2.to_string()),
                     and!(
-                        eq2!(&pos, pos1.value_as_string().to_comval()),
-                        eq2!(&stat, "on".to_comval())
+                        eq!(&pos.cr(), pos1.to_string().cl()),
+                        eq!(&stat.cr(), "on".cl())
                     ),
-                    vec!(a!(pos.clone(), pos1.value_as_string().to_comval()))
+                    vec!(a!(pos.clone(), pos1.to_string().cl()))
                 ))
             }
         }
@@ -114,16 +115,16 @@ fn test_step_1_2() {
 
     transitions.push(t!(
         "turn_on",
-        eq!("stat".to_comvar(&s), "off".to_comval()),
-        vec!(a!(stat.clone(), "on".to_comval()))
+        eq!(&stat.cr(), "off".cl()),
+        vec!(a!(stat.clone(), "on".cl()))
     ));
     transitions.push(t!(
         "turn_off",
-        eq!("stat".to_comvar(&s), "on".to_comval()),
-        vec!(a!(stat.clone(), "off".to_comval()))
+        eq!(&stat.cr(), "on".cl()),
+        vec!(a!(stat.clone(), "off".cl()))
     ));
 
-    let result = step_1(
+    let result = hint_with_anomalies(
         transitions,
         100, // max_tries
         50,  // max_combinations

@@ -1,13 +1,13 @@
 #![allow(unused_imports)]
 #![allow(dead_code)]
 use micro_sp::{
-    a, and, eq, eq2, s, simple_transition_planner, step_2, t, v, Action, Predicate, SPCommon,
-    SPValue, SPValueType, SPVariable, State, ToSPCommon, ToSPCommonVar, ToSPValue, ToSPVariable,
+    a, and, eq, s, simple_transition_planner, t, v, Action, Predicate, SPCommon,
+    SPValue, SPValueType, SPVariable, State, ToSPCommon, ToSPCommonVar, ToSPValue,
     Transition,
 };
 use std::collections::{HashMap, HashSet};
 
-// TransitionHints, hint_transition
+use crate::core::untrigerred::hint_with_untrigerred_transitions;
 
 #[test]
 fn test_step_2() {
@@ -24,36 +24,36 @@ fn test_step_2() {
     transitions.push(t!(
         "a_to_b",
         and!(
-            eq!("pos".to_comvar(&s), "a".to_comval()),
-            eq!("stat".to_comvar(&s), "on".to_comval())
+            eq!(&pos.cr(), "a".cl()),
+            eq!(&stat.cr(), "on".cl())
         ),
-        vec!(a!(pos.clone(), "b".to_comval()))
+        vec!(a!(pos.clone(), "b".cl()))
     ));
     transitions.push(t!(
         "b_to_c",
         and!(
-            eq!("pos".to_comvar(&s), "b".to_comval()),
-            eq!("stat".to_comvar(&s), "on".to_comval())
+            eq!(&pos.cr(), "b".cl()),
+            eq!(&stat.cr(), "on".cl())
         ),
-        vec!(a!(pos.clone(), "a".to_comval()))
+        vec!(a!(pos.clone(), "a".cl()))
     ));
     transitions.push(t!(
         "c_to_d",
         and!(
-            eq!("pos".to_comvar(&s), "c".to_comval()),
-            eq!("stat".to_comvar(&s), "on".to_comval())
+            eq!(&pos.cr(), "c".cl()),
+            eq!(&stat.cr(), "on".cl())
         ),
-        vec!(a!(pos.clone(), "d".to_comval()))
+        vec!(a!(pos.clone(), "d".cl()))
     ));
     transitions.push(t!(
         "turn_on",
-        eq!("stat".to_comvar(&s), "off".to_comval()),
-        vec!(a!(stat.clone(), "on".to_comval()))
+        eq!(&stat.cr(), "off".cl()),
+        vec!(a!(stat.clone(), "on".cl()))
     ));
     transitions.push(t!(
         "turn_off",
-        eq!("stat".to_comvar(&s), "on".to_comval()),
-        vec!(a!(stat.clone(), "off".to_comval()))
+        eq!(&stat.cr(), "on".cl()),
+        vec!(a!(stat.clone(), "off".cl()))
     ));
 
     // valid init/goal combinations
@@ -66,8 +66,8 @@ fn test_step_2() {
             (stat.clone(), "off".to_spval())
         ]),
         and!(
-            eq!("pos".to_comvar(&s), "d".to_comval()),
-            eq!("stat".to_comvar(&s), "off".to_comval())
+            eq!(&pos.cr(), "d".cl()),
+            eq!(&stat.cr(), "off".cl())
         ),
     ));
     comb.push((
@@ -75,17 +75,17 @@ fn test_step_2() {
             (stat.clone(), "off".to_spval()),
             (pos.clone(), "a".to_spval())
         ]),
-        eq!("stat".to_comvar(&s), "on".to_comval()),
+        eq!(&stat.cr(), "on".cl()),
     ));
     comb.push((
         s!([
             (pos.clone(), "a".to_spval()),
             (stat.clone(), "off".to_spval())
         ]),
-        eq!("pos".to_comvar(&s), "b".to_comval()),
+        eq!(&pos.cr(), "b".cl()),
     ));
 
-    let not_taken_transitions = step_2(comb.clone(), transitions.clone(), 20);
+    let not_taken_transitions = hint_with_untrigerred_transitions(comb.clone(), transitions.clone(), 20);
     println!("not taken: {:?}", not_taken_transitions);
 
     // at this point not taken: {"turn_off", "b_to_c", "c_to_d"}
@@ -94,26 +94,26 @@ fn test_step_2() {
             (pos.clone(), "b".to_spval()),
             (stat.clone(), "on".to_spval())
         ]),
-        eq!("pos".to_comvar(&s), "c".to_comval()),
+        eq!(&pos.cr(), "c".cl()),
     ));
     comb.push((
         s!([
             (pos.clone(), "c".to_spval()),
             (stat.clone(), "on".to_spval())
         ]),
-        eq!("pos".to_comvar(&s), "d".to_comval()),
+        eq!(&pos.cr(), "d".cl()),
     ));
     comb.push((
         s!([
             (pos.clone(), "c".to_spval()),
             (stat.clone(), "on".to_spval())
         ]),
-        eq!("stat".to_comvar(&s), "off".to_comval()),
+        eq!(&stat.cr(), "off".cl()),
     ));
 
     // at this point not taken {"b_to_c"}, but since we see that it is added as a valid combination, the error is there
 
-    let not_taken_transitions = step_2(comb, transitions, 20);
+    let not_taken_transitions = hint_with_untrigerred_transitions(comb, transitions, 20);
     println!("not taken: {:?}", not_taken_transitions);
 }
 
@@ -132,12 +132,12 @@ fn test_step_2_2() {
         for pos2 in &pos.domain {
             if pos1 != pos2 {
                 transitions.push(t!(
-                    &format!("{}_to_{}", &pos1.value_as_string(), &pos2.value_as_string()),
+                    &format!("{}_to_{}", &pos1.to_string(), &pos2.to_string()),
                     and!(
-                        eq2!(&pos, pos1.value_as_string().to_comval()),
-                        eq2!(&stat, "on".to_comval())
+                        eq!(&pos.cr(), pos1.to_string().cl()),
+                        eq!(&stat.cr(), "on".cl())
                     ),
-                    vec!(a!(pos.clone(), pos1.value_as_string().to_comval()))
+                    vec!(a!(pos.clone(), pos1.to_string().cl()))
                 ))
             }
         }
@@ -145,13 +145,13 @@ fn test_step_2_2() {
 
     transitions.push(t!(
         "turn_on",
-        eq!("stat".to_comvar(&s), "off".to_comval()),
-        vec!(a!(stat.clone(), "on".to_comval()))
+        eq!(&stat.cr(), "off".cl()),
+        vec!(a!(stat.clone(), "on".cl()))
     ));
     transitions.push(t!(
         "turn_off",
-        eq!("stat".to_comvar(&s), "on".to_comval()),
-        vec!(a!(stat.clone(), "off".to_comval()))
+        eq!(&stat.cr(), "on".cl()),
+        vec!(a!(stat.clone(), "off".cl()))
     ));
 
     // valid init/goal combinations
@@ -164,8 +164,8 @@ fn test_step_2_2() {
             (stat.clone(), "off".to_spval())
         ]),
         and!(
-            eq!("pos".to_comvar(&s), "d".to_comval()),
-            eq!("stat".to_comvar(&s), "off".to_comval())
+            eq!(&pos.cr(), "d".cl()),
+            eq!(&stat.cr(), "off".cl())
         ),
     ));
     comb.push((
@@ -173,14 +173,14 @@ fn test_step_2_2() {
             (stat.clone(), "off".to_spval()),
             (pos.clone(), "a".to_spval())
         ]),
-        eq!("stat".to_comvar(&s), "on".to_comval()),
+        eq!(&stat.cr(), "on".cl()),
     ));
     comb.push((
         s!([
             (pos.clone(), "a".to_spval()),
             (stat.clone(), "off".to_spval())
         ]),
-        eq!("pos".to_comvar(&s), "b".to_comval()),
+        eq!(&pos.cr(), "b".cl()),
     ));
 
     // even now we see that a_to_b failed to the problem is in the "to" transitions
@@ -192,21 +192,21 @@ fn test_step_2_2() {
             (pos.clone(), "b".to_spval()),
             (stat.clone(), "on".to_spval())
         ]),
-        eq!("pos".to_comvar(&s), "c".to_comval()),
+        eq!(&pos.cr(), "c".cl()),
     ));
     comb.push((
         s!([
             (pos.clone(), "c".to_spval()),
             (stat.clone(), "on".to_spval())
         ]),
-        eq!("pos".to_comvar(&s), "d".to_comval()),
+        eq!(&pos.cr(), "d".cl()),
     ));
     comb.push((
         s!([
             (pos.clone(), "c".to_spval()),
             (stat.clone(), "on".to_spval())
         ]),
-        eq!("stat".to_comvar(&s), "off".to_comval()),
+        eq!(&stat.cr(), "off".cl()),
     ));
 
     // at this point not taken: {"b_to_d", "e_to_d", "e_to_b", "f_to_c", "d_to_f", "c_to_e", "d_to_b", "c_to_f", "c_to_b",
@@ -214,6 +214,6 @@ fn test_step_2_2() {
     //"f_to_b", "d_to_c", "b_to_e", "c_to_a", "f_to_d", "a_to_c", "d_to_a", "f_to_a"}
     // which means that the error is in the way we defined all the "to" transitions
 
-    let not_taken_transitions = step_2(comb, transitions, 20);
+    let not_taken_transitions = hint_with_untrigerred_transitions(comb, transitions, 20);
     println!("not taken: {:?}", not_taken_transitions);
 }
