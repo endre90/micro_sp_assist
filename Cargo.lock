@@ -28,7 +28,7 @@ checksum = "68783febc7782c6c5cb401fbda4de5a9898be1762314da0bb2c10ced61f18b0c"
 [[package]]
 name = "micro_sp"
 version = "0.1.0"
-source = "git+https://github.com/endre90/micro_sp.git#4b50aa2f9c75eb58740bb3d1ad11ae8a3e94ed04"
+source = "git+https://github.com/endre90/micro_sp.git#b92dc0d4ba926985ddfb853c33975aad4fbe0e7d"
 
 [[package]]
 name = "micro_sp_assist"
